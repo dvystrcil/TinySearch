@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import tinysearch
 from tinysearch.config import DEFAULT_CONFIG, normalize_config
@@ -256,3 +256,86 @@ class ScrapeUrlsToolRefusalMemoryTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BrowserNavigateRefusalMemoryTests(unittest.IsolatedAsyncioTestCase):
+    """browser_navigate shares the scrape memory: a refused host is not opened
+    in a browser either, and a refusal the browser sees is remembered for both."""
+
+    def setUp(self) -> None:
+        SHARED_REFUSED_HOSTS.clear()
+        self.addCleanup(SHARED_REFUSED_HOSTS.clear)
+
+    async def test_navigate_to_a_refused_host_starts_no_browser(self) -> None:
+        from tinysearch.services import browser_tool_service as bt
+
+        SHARED_REFUSED_HOSTS.remember(
+            "https://www.trianglelab.net/products/x", 403, ttl_seconds=600
+        )
+        acquire = AsyncMock()
+        with patch.object(bt, "acquire_session", acquire):
+            with self.assertRaises(bt.BrowserToolError) as raised:
+                await bt.call_tool(
+                    "navigate", normalize_config(), url="https://trianglelab.net/other"
+                )
+        acquire.assert_not_awaited()
+        message = str(raised.exception)
+        self.assertIn("trianglelab.net refused automated access", message)
+        self.assertIn("HTTP 403", message)
+        self.assertIn("will not ask it again", message)
+
+    async def test_ttl_zero_lets_navigate_through(self) -> None:
+        from tinysearch.services import browser_tool_service as bt
+
+        SHARED_REFUSED_HOSTS.remember("https://shop.example/a", 403, ttl_seconds=600)
+        session = MagicMock()
+        session.navigate = AsyncMock(return_value="- Page URL: https://shop.example/b")
+        session.started = True
+        with patch.object(bt, "acquire_session", AsyncMock(return_value=session)):
+            result = await bt.call_tool(
+                "navigate",
+                normalize_config({"scrape_refused_host_ttl_seconds": 0}),
+                url="https://shop.example/b",
+            )
+        self.assertIn("shop.example/b", result)
+
+    async def test_other_browser_actions_are_not_gated(self) -> None:
+        from tinysearch.services import browser_tool_service as bt
+
+        SHARED_REFUSED_HOSTS.remember("https://shop.example/a", 403, ttl_seconds=600)
+        session = MagicMock()
+        session.look = AsyncMock(return_value="- body")
+        session.started = True
+        with patch.object(bt, "acquire_session", AsyncMock(return_value=session)):
+            self.assertEqual(await bt.call_tool("look", normalize_config()), "- body")
+
+    def _session(self, status: int | None):
+        from tinysearch.services import browser_tool_service as bt
+
+        session = bt.BrowserSession(normalize_config())
+        page = MagicMock()
+        page.is_closed.return_value = False
+        page.url = "https://shop.example/a"
+        page.title = AsyncMock(return_value="Just a moment...")
+        page.aria_snapshot = AsyncMock(return_value="- body")
+        response = None if status is None else MagicMock(status=status)
+        page.goto = AsyncMock(return_value=response)
+        session._page = page
+        session._context = MagicMock()
+        session.start = AsyncMock()
+        return session
+
+    async def test_a_refusal_seen_by_the_browser_is_remembered_for_scrape_too(self) -> None:
+        session = self._session(403)
+        view = await session.navigate("https://www.shop.example/a")
+        # This call still shows what the browser got; the memory governs the next one.
+        self.assertIn("Just a moment...", view)
+        refusal = SHARED_REFUSED_HOSTS.refusal_for("https://shop.example/collections/x")
+        self.assertIsNotNone(refusal)
+        self.assertEqual(refusal.status, 403)
+
+    async def test_success_and_missing_response_are_not_remembered(self) -> None:
+        for status in (200, 404, None):
+            session = self._session(status)
+            await session.navigate("https://shop.example/a")
+            self.assertIsNone(SHARED_REFUSED_HOSTS.refusal_for("https://shop.example/a"))
