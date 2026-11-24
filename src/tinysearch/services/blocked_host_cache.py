@@ -99,5 +99,5 @@ class BlockedHostCache:
             self._entries.clear()
 
 
-# The one memory shared by every scrape_urls call in this process.
+# The one memory shared by every scrape_urls and browser_navigate call in this process.
 SHARED_REFUSED_HOSTS = BlockedHostCache()
