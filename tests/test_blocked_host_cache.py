@@ -209,6 +209,30 @@ class PipelineRefusalMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(site.fetches), 2)
         self.assertIsNone(self.cache.refusal_for("https://shop.example/a"))
 
+    async def test_not_found_is_an_error_but_never_remembered(self) -> None:
+        # A 404 says one page is missing, not that the host refuses automated
+        # access: it is reported as an error, and the next page is still fetched.
+        fetches: list[str] = []
+
+        async def _not_found(*, url, user_query, crawler=None):
+            fetches.append(url)
+            return {
+                "final_url": url,
+                "html": "<html><head><title>Page not found</title></head></html>",
+                "markdown_raw": "# Page not found\n" + _LONG_TEXT,
+                "metadata": {"title": "Page not found", "status": 404},
+            }
+
+        site = FakeSite(404)
+        site.crawl = _not_found
+        for url in ("https://shop.example/gone", "https://shop.example/also-gone"):
+            with self.assertRaises(FetchUnavailableError) as raised:
+                await self._scrape(url, site)
+            self.assertNotIsInstance(raised.exception, HostRecentlyRefusedError)
+            self.assertIn("HTTP 404", str(raised.exception))
+        self.assertEqual(len(fetches), 2)
+        self.assertIsNone(self.cache.refusal_for("https://shop.example/gone"))
+
     async def test_success_through_the_fallback_is_not_remembered(self) -> None:
         site = FakeSite(403)
         readable = await FakeSite(200).crawl(url="https://shop.example/a", user_query=None)
