@@ -7,6 +7,8 @@
   "search_backend_fallback": true,
   "_comment_search_engines": "Optional SearXNG engine names. Leave empty to use the engines enabled by the SearXNG instance.",
   "search_engines": [],
+  "_comment_search_categories": "Optional SearXNG categories sent with search_engines. With both set, SearXNG searches the named engines plus the instance's enabled engines in these categories (e.g. engines [\"braveapi\"] + categories [\"general\"]).",
+  "search_categories": [],
   "_comment_search_region": "Optional regional search code such as 'us-en'. Leave empty for backend defaults.",
   "search_region": "",
   "_comment_searxng_timeout_seconds": "Timeout for TinySearch's request to SearXNG. This is separate from SearXNG's own per-engine timeouts.",
