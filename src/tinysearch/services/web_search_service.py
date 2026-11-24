@@ -387,6 +387,7 @@ def _searxng_search(
     *,
     url: str,
     engines: Any = None,
+    categories: Any = None,
     region: str | None = None,
     timeout: float = _DEFAULT_SEARXNG_TIMEOUT,
 ) -> list[SearchResult]:
@@ -402,6 +403,9 @@ def _searxng_search(
     engines_str = _normalize_engines(engines)
     if engines_str:
         params.append(("engines", engines_str))
+    categories_str = _normalize_engines(categories)  # same comma-list shape
+    if categories_str:
+        params.append(("categories", categories_str))
     if region:
         params.append(("language", str(region)))
 
@@ -544,7 +548,8 @@ def _dispatch_search_with_metadata_uninstrumented(
     if backend == "auto":
         try:
             return SearchResponse(_searxng_search(
-                query, limit, url=url, engines=engines, region=str(region) or None,
+                query, limit, url=url, engines=engines,
+            categories=config.get("search_categories"), region=str(region) or None,
                 timeout=searxng_timeout,
             ), "searxng")
         except SearchBackendError:
@@ -555,7 +560,8 @@ def _dispatch_search_with_metadata_uninstrumented(
     # backend == "searxng"
     try:
         return SearchResponse(_searxng_search(
-            query, limit, url=url, engines=engines, region=str(region) or None,
+            query, limit, url=url, engines=engines,
+            categories=config.get("search_categories"), region=str(region) or None,
             timeout=searxng_timeout,
         ), "searxng")
     except SearchBackendError:
@@ -675,6 +681,7 @@ def _backend_attempt_plan(
         limit,
         url=url,
         engines=engines,
+        categories=config.get("search_categories"),
         region=region,
         timeout=searxng_timeout,
     )

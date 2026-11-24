@@ -59,6 +59,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "search_backend": "ddgs",
     "search_backend_url": DEFAULT_SEARXNG_URL,
     "search_engines": [],
+    "search_categories": [],
     "search_region": "",
     "search_backend_fallback": True,
     "searxng_timeout_seconds": 8.0,
@@ -113,6 +114,18 @@ _FLOAT_FIELDS = {
     "scrape_fallback_fetcher_timeout_seconds",
     "scrape_settle_seconds",
 }
+
+
+def _name_list(config: Mapping[str, Any], key: str) -> list[str]:
+    """A list of names from a list or a comma-separated string."""
+    raw = config.get(key)
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, str):
+        return [part.strip() for part in raw.split(",") if part.strip()]
+    if isinstance(raw, list):
+        return [str(item).strip() for item in raw if str(item).strip()]
+    raise ValueError(f"tinysearch config {key} must be a list or comma-separated string")
 
 
 def normalize_config(raw: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -284,20 +297,11 @@ def normalize_config(raw: Mapping[str, Any] | None = None) -> dict[str, Any]:
         config.get("search_backend_url") or DEFAULT_SEARXNG_URL
     ).strip() or DEFAULT_SEARXNG_URL
 
-    engines_raw = config.get("search_engines")
-    if engines_raw is None or engines_raw == "":
-        engines_list: list[str] = []
-    elif isinstance(engines_raw, str):
-        engines_list = [part.strip() for part in engines_raw.split(",") if part.strip()]
-    elif isinstance(engines_raw, list):
-        engines_list = [
-            str(item).strip() for item in engines_raw if str(item).strip()
-        ]
-    else:
-        raise ValueError(
-            "tinysearch config search_engines must be a list or comma-separated string"
-        )
-    config["search_engines"] = engines_list
+    config["search_engines"] = _name_list(config, "search_engines")
+    # SearXNG categories sent with the engines: `engines=braveapi` plus
+    # `categories=general` searches braveapi AND the instance's enabled
+    # general engines, so the instance keeps choosing the free ones.
+    config["search_categories"] = _name_list(config, "search_categories")
     config["search_region"] = str(
         config.get("search_region") or config.get("search_country") or ""
     ).strip()
@@ -335,6 +339,7 @@ class TinySearchConfig(Mapping[str, Any]):
         values = dict(self._values)
         values["blocked_domains"] = list(values["blocked_domains"])
         values["search_engines"] = list(values["search_engines"])
+        values["search_categories"] = list(values["search_categories"])
         return values
 
     def with_overrides(self, values: Mapping[str, Any]) -> TinySearchConfig:
